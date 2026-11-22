@@ -1,11 +1,16 @@
 // HTTP layer checks that run before any database access: validation,
 // operator injection, CORS, unknown routes. No MongoDB needed.
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { after, before, test } from "node:test";
 
 process.env.NODE_ENV = "test";
 process.env.JWT_SECRET = "test-secret-that-is-at-least-32-characters-long";
 process.env.MONGODB_URI = "mongodb://127.0.0.1:1/never-connected";
+const uploadDir = fs.mkdtempSync(path.join(os.tmpdir(), "ga-uploads-"));
+process.env.UPLOAD_DIR = uploadDir;
 
 let server, base;
 before(async () => {
@@ -119,4 +124,31 @@ test("gateway fail/cancel posts are not blocked by CORS and redirect to the stor
 test("admin order routes need a token", async () => {
     assert.equal((await fetch(`${base}/api/admin/orders`)).status, 401);
     assert.equal((await fetch(`${base}/api/admin/customers`)).status, 401);
+});
+
+test("phase 3 admin routes need a token; an anonymous upload is refused before buffering", async () => {
+    for (const p of ["/api/admin/site", "/api/admin/landing", "/api/admin/products"]) {
+        assert.equal((await fetch(base + p)).status, 401, p);
+    }
+    const form = new FormData();
+    form.append("image", new Blob([Buffer.alloc(1024)], { type: "image/png" }), "a.png");
+    const res = await fetch(`${base}/api/admin/uploads`, { method: "POST", body: form });
+    assert.equal(res.status, 401);
+});
+
+test("uploads are served cross-origin with a long cache, no listing, no dotfiles", async () => {
+    fs.mkdirSync(path.join(uploadDir, "2026", "11"), { recursive: true });
+    fs.writeFileSync(path.join(uploadDir, "2026", "11", "abc.webp"), "x");
+    fs.writeFileSync(path.join(uploadDir, ".env"), "SECRET=1");
+    let res = await fetch(`${base}/uploads/2026/11/abc.webp`, { headers: { Origin: "https://evil.example" } });
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get("cross-origin-resource-policy"), "cross-origin");
+    assert.match(res.headers.get("cache-control"), /max-age=31536000.*immutable/);
+    assert.equal(res.headers.get("x-content-type-options"), "nosniff");
+    res = await fetch(`${base}/uploads/2026/11/`);
+    assert.equal(res.status, 404);
+    res = await fetch(`${base}/uploads/.env`);
+    assert.notEqual(res.status, 200);
+    res = await fetch(`${base}/uploads/..%2f..%2fpackage.json`);
+    assert.notEqual(res.status, 200);
 });

@@ -348,8 +348,11 @@ test("admin list, search, needs-attention count and CSV export", async () => {
     r = await adminGet(`/api/admin/orders?q=${manualOrder.orderNumber}`);
     assert.equal((await r.json()).orders[0].orderNumber, manualOrder.orderNumber);
     r = await adminGet("/api/admin/orders/export");
-    const csv = await r.text();
-    assert.equal(csv.charCodeAt(0), 0xfeff);
+    // Raw bytes: Response.text() decodes UTF-8 and drops a leading BOM
+    // (WHATWG decode), so it cannot see the BOM that Excel needs.
+    const bytes = Buffer.from(await r.arrayBuffer());
+    assert.deepEqual([...bytes.subarray(0, 3)], [0xef, 0xbb, 0xbf]);
+    const csv = bytes.toString("utf8");
     assert.match(csv, /'=HYPERLINK\(1\)/);
     r = await adminGet("/api/admin/customers?q=Test");
     assert.equal(r.status, 200);

@@ -45,6 +45,13 @@ Tokenized Checkout and SSLCommerz switched on by keys in `.env`.
   from`, `paymentStatus: from`); stock uses the `stockDeducted` claim flag.
 - A gateway method without keys in `.env` is hidden
   (`services/paymentMethods.js`), never offered and then failed.
+- **Stock changes only through `services/stock.js`** (orders, the stock
+  endpoint): conditional `$inc`, then a `StockMovement` ledger line. Product
+  edits ignore `stock`.
+- **Landing sections are validated by `services/landingSchema.js`**, the twin
+  of the front's `lib/schema.js`. A new section field needs a line in both.
+- **Uploads are always re-encoded by sharp** (never stored as sent). Images in
+  any model/section must pass `utils/url.js` `isSafeImageUrl`.
 - System-generated status or note entries omit `updatedBy`/`addedBy` (Footpath
   trap: the string "system" silently vanishes on an ObjectId field).
 - No PII in logs: use `utils/logger.js` `debug()`.

@@ -35,3 +35,6 @@ export const trackingLimiter = make(60 * 1000, 30);
 
 // Gateway callbacks and IPNs. Real traffic is a handful per order.
 export const paymentCallbackLimiter = make(60 * 1000, 60);
+
+// Image uploads are CPU heavy (sharp re-encodes each one).
+export const uploadLimiter = make(10 * 60 * 1000, 60);

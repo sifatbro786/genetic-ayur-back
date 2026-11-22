@@ -4,9 +4,10 @@
 // the storefront already renders (genetic-ayur-front/lib/defaults.js), so the
 // same document drives the landing page and the order form.
 //
-// Several products are expected later (3 to 5). Each one is its own document
+// Several products are expected later (up to 15 to 20). Each one is its own document
 // with its own slug; nothing here assumes there is only one.
 import mongoose from "mongoose";
+import { isSafeImageUrl } from "../utils/url.js";
 import { variantKey } from "../utils/variants.js";
 
 const optionSchema = new mongoose.Schema(
@@ -52,7 +53,14 @@ const productSchema = new mongoose.Schema(
         },
         // Short line for a future "other products" grid on the home page.
         shortDescription: { type: String, trim: true, maxlength: 300, default: "" },
-        image: { type: String, trim: true, default: "" },
+        // Plain text for the product page (Phase 4). Rendered as text, never HTML.
+        description: { type: String, trim: true, maxlength: 5000, default: "" },
+        image: { type: String, trim: true, default: "", validate: [isSafeImageUrl, "Image must be an https URL or a /path"] },
+        gallery: {
+            type: [{ type: String, trim: true, validate: [isSafeImageUrl, "Image must be an https URL or a /path"] }],
+            validate: [(v) => v.length <= 8, "Up to 8 gallery images"],
+            default: [],
+        },
         netWeight: { type: String, trim: true, maxlength: 40, default: "" },
         // Single units on hand (jars). Never sent to the storefront as a raw
         // number; the public shape exposes per pack availability instead.

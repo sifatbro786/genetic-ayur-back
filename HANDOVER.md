@@ -1,6 +1,6 @@
 # HANDOVER: Genetic Ayur backend
 
-Last updated: 2026-11-22, end of Phase 2 (code done; run `npm test` locally once, see below).
+Last updated: 2026-11-23, end of Phase 3 (code done; run `npm test` locally, see below).
 
 ## Context
 
@@ -85,19 +85,43 @@ tables and courier branches, weight-based shipping, tax.
   need MongoDB: the in-memory download was blocked in the build sandbox, so
   **run `npm test` on your machine once** and fix anything red before Phase 3.
 
-### Phase 3: dashboard write API
+### Phase 3: dashboard write API (DONE)
 
-- `PUT /api/admin/site` (validated by the model), `PUT /api/admin/landing` with
-  per section validation (allowed keys, lengths, list sizes; Mixed field).
-- Products CRUD (`/api/admin/products`), soft delete via `isActive`, stock
-  adjust with a `StockMovement` ledger; product edits never write stock.
-- Image upload: multer memory + sharp to WebP, size and type limits, served
-  from `/uploads` (VPS disk) with long cache headers.
-- On every content save, call the storefront's revalidate endpoint
-  (`REVALIDATE_URL` + secret) so Vercel refreshes the cached page at once.
+- `GET/PUT /api/admin/site`: leaf by leaf update (one nested field never
+  resets its siblings), model validation, `gateways` + `warnings` for methods
+  that are on but have no keys.
+- `GET/PUT /api/admin/landing`: per section cleaning with
+  `services/landingSchema.js` (twin of the front's `lib/schema.js`), partial
+  section saves, `productSlug` must be an active product, a `products` section
+  for the multi-product grid.
+- Products CRUD with search and pagination (built for 15 to 20+), auto slug,
+  soft delete, landing product protected, slug rename moves the landing
+  pointer. New fields `description` and `gallery` (max 8) for product pages.
+- Stock ledger (`StockMovement`): opening stock, restock, damaged, correction,
+  and the order flow (confirm/cancel) all write a line with the balance after.
+- Image upload: multer (memory, 8 MB) + sharp re-encode to WebP, metadata
+  stripped, size by kind, decompression bomb cap; served from `/uploads` with
+  immutable caching and cross-origin CORP.
+- Storefront revalidation call after every content, product and stock save
+  (`REVALIDATE_URL` + `REVALIDATE_SECRET`; the route itself is Phase 4).
+- Image/link URL rules in models (logo, product image/gallery, Facebook link).
+- Dependencies: multer 2, sharp 0.35.5, nodemailer raised to 10.6 (v7 had
+  high severity advisories). `npm audit --omit=dev`: 0.
+- Tests: 48 run without a database (adds section cleaning, URL rules, image
+  re-encoding, upload serving). `tests/admin.test.js` (11 DB tests) plus the
+  Phase 2 DB suites run on your machine.
 
 ### Phase 4: storefront wiring and launch
 
+- Storefront revalidate route: `POST /api/revalidate`, checks
+  `x-revalidate-secret` against its own `REVALIDATE_SECRET` (same value as the
+  API's), calls `revalidateTag` for each tag in `{ tags }`. Then set
+  `REVALIDATE_URL=https://<storefront>/api/revalidate` in the API's `.env`.
+- `next.config.mjs` `images.remotePatterns`: add the API host (`/uploads/**`)
+  next to images.unsplash.com.
+- Dashboard: image fields upload to `/api/admin/uploads` and store the URL;
+  product page uses the stock endpoint (not the product form) and shows the
+  movement history; products list with search/pagination.
 - `genetic-ayur-front`: `lib/stores.js` reads from the API (server fetch of
   `/api/storefront` with revalidate tags on the landing page; client hooks for
   the dashboard). Delete `lib/pricing.js`; the order form calls calculate.
@@ -150,6 +174,10 @@ tables and courier branches, weight-based shipping, tax.
   "refunded" in the dashboard.
 - `orderLimiter` is skipped when NODE_ENV=test (the suite places many orders
   from one IP); the per phone cap is tested instead.
+- Product `stock` is ignored by PUT on purpose: the dashboard form that edits
+  everything at once must not overwrite sales that happened while it was open.
+- `/uploads` lives on the VPS disk: include `UPLOAD_DIR` in backups, and keep
+  it outside the code folder if deploys replace that folder.
 - Images in the seed are storefront-relative paths (`/images/...`). Uploaded
   images in Phase 3 will be absolute URLs; the storefront must accept both.
 

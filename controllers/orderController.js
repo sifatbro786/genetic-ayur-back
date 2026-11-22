@@ -132,7 +132,7 @@ export const createOrder = async (req, res) => {
     if (env.stockDeductOn === "placed") {
         const units = new Map();
         for (const it of doc.orderItems) units.set(String(it.product), (units.get(String(it.product)) || 0) + it.units);
-        const r = await takeUnits(units);
+        const r = await takeUnits(units, { reason: "order", orderNumber });
         if (!r.ok) return bad(res, 409, "দুঃখিত, এই পরিমাণ স্টকে নেই। পরিমাণ কমিয়ে চেষ্টা করুন অথবা ফোন করুন।", "OUT_OF_STOCK");
         taken = units;
         doc.stockDeducted = true;
@@ -142,7 +142,7 @@ export const createOrder = async (req, res) => {
     try {
         order = await Order.create(doc);
     } catch (err) {
-        if (taken) await returnUnits(taken);
+        if (taken) await returnUnits(taken, { reason: "order_cancelled", orderNumber, note: "order was not saved" });
         if (err.code === 11000 && err.keyPattern?.["manualPayment.trxId"]) return bad(res, 409, DUP_TRX, "TRXID_USED");
         if (err.code === 11000 && err.keyPattern?.clientRequestId) {
             const replay = await replayOrder(b.clientRequestId);

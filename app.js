@@ -6,13 +6,17 @@ import express from "express";
 import helmet from "helmet";
 import hpp from "hpp";
 import morgan from "morgan";
+import path from "node:path";
 import mongoose from "mongoose";
 import env from "./config/env.js";
 import { errorHandler, notFound } from "./middlewares/error.js";
 import { globalApiLimiter } from "./middlewares/rateLimiter.js";
 import { sanitizeRequest } from "./middlewares/sanitize.js";
 import adminAuthRoutes from "./routes/admin/authRoutes.js";
+import { landingRouter as adminLandingRoutes, siteRouter as adminSiteRoutes } from "./routes/admin/contentRoutes.js";
 import { customerRouter as adminCustomerRoutes, orderRouter as adminOrderRoutes } from "./routes/admin/orderRoutes.js";
+import adminProductRoutes from "./routes/admin/productRoutes.js";
+import adminUploadRoutes from "./routes/admin/uploadRoutes.js";
 import checkoutRoutes from "./routes/checkoutRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
@@ -24,7 +28,7 @@ app.disable("x-powered-by");
 if (env.trustProxy) app.set("trust proxy", env.trustProxy);
 
 // ═══ Middleware order is load-bearing (same as the Footpath base) ═══
-//   compression → helmet → [gateway callbacks] → cors → body parsers → sanitize → hpp → limiter → routes
+//   compression → helmet → [gateway callbacks, /uploads] → cors → body parsers → sanitize → hpp → limiter → routes
 // sanitize MUST precede hpp: it makes Express 5's req.query writable.
 
 app.use(compression());
@@ -34,6 +38,22 @@ app.use(helmet());
 // the storefront, so they sit before CORS with their own parser, sanitizer
 // and limiter (routes/paymentRoutes.js).
 app.use("/api/payments", paymentRoutes);
+
+// Uploaded images (dashboard uploads, already re-encoded to WebP). Names are
+// random and never reused, so they can be cached forever. helmet's default
+// Cross-Origin-Resource-Policy (same-origin) would block them on the Vercel
+// storefront; these are public images, so cross-origin is right here.
+app.use(
+    "/uploads",
+    express.static(path.resolve(env.uploadDir), {
+        index: false,
+        dotfiles: "deny",
+        redirect: false,
+        maxAge: "365d",
+        immutable: true,
+        setHeaders: (res) => res.set("Cross-Origin-Resource-Policy", "cross-origin"),
+    }),
+);
 
 const allowed = new Set([...env.clientUrls, ...(env.isProd ? [] : ["http://localhost:3000"])]);
 app.use(
@@ -79,6 +99,10 @@ app.use("/api/orders", orderRoutes);
 app.use("/api/admin/auth", adminAuthRoutes);
 app.use("/api/admin/orders", adminOrderRoutes);
 app.use("/api/admin/customers", adminCustomerRoutes);
+app.use("/api/admin/site", adminSiteRoutes);
+app.use("/api/admin/landing", adminLandingRoutes);
+app.use("/api/admin/products", adminProductRoutes);
+app.use("/api/admin/uploads", adminUploadRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

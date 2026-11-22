@@ -38,6 +38,15 @@ const env = {
     // "confirmed" (default): stock is checked when the order is placed but
     // deducted when the shop confirms it, so fake COD orders never lock jars.
     // "placed": deducted the moment the order is saved.
+    // Storefront on-demand revalidation (Next.js route handler + shared secret).
+    revalidate: {
+        url: process.env.REVALIDATE_URL || "",
+        secret: process.env.REVALIDATE_SECRET || "",
+    },
+
+    // Uploaded images: folder on the VPS disk, served at /uploads.
+    uploadDir: process.env.UPLOAD_DIR || "uploads",
+
     stockDeductOn: process.env.STOCK_DEDUCT_ON === "placed" ? "placed" : "confirmed",
 
     smtp: {
@@ -84,6 +93,7 @@ export const envProblems = () => {
     if (isProd && (bkashConfigured() || sslcommerzConfigured()) && !/^https:\/\//.test(env.apiPublicUrl)) {
         problems.push("API_PUBLIC_URL must be the public https URL of this API when a payment gateway is configured");
     }
+    if (env.revalidate.url && env.revalidate.secret.length < 24) problems.push("REVALIDATE_SECRET must be at least 24 characters when REVALIDATE_URL is set");
     if (isProd && env.sslcommerz.sandbox && sslcommerzConfigured()) {
         console.warn("SSLCZ_SANDBOX is on in production: payments go to the SSLCommerz sandbox.");
     }

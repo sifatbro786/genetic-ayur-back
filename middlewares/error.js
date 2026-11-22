@@ -28,7 +28,11 @@ export const errorHandler = (err, req, res, _next) => {
             .join(", ");
     } else if (err.code === 11000) {
         status = 409;
-        message = "Duplicate value";
+        const field = Object.keys(err.keyValue || err.keyPattern || {})[0];
+        message = field ? `${field} already exists` : "Duplicate value";
+    } else if (err.name === "MulterError") {
+        status = err.code === "LIMIT_FILE_SIZE" ? 413 : 400;
+        message = err.code === "LIMIT_FILE_SIZE" ? "Image is larger than 8 MB" : "Upload one image in the \"image\" field";
     }
 
     if (status >= 500) console.error(`[${req.method} ${req.originalUrl}]`, err);

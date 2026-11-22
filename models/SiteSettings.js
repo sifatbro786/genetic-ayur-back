@@ -5,6 +5,7 @@
 // validated; the rest is plain text the dashboard edits.
 import mongoose from "mongoose";
 import { normalizeBdPhone } from "../utils/phone.js";
+import { isHttpsUrl, isSafeImageUrl } from "../utils/url.js";
 
 // Same keys as Footpath's ShippingConfig so orders map 1:1 with the base.
 export const ZONE_KEYS = ["dhaka_inside", "dhaka_sub", "outside_dhaka"];
@@ -58,12 +59,12 @@ const siteSettingsSchema = new mongoose.Schema(
         key: { type: String, default: "main", unique: true, immutable: true },
         storeName: { type: String, trim: true, maxlength: 80, default: "" },
         storeNameBn: { type: String, trim: true, maxlength: 80, default: "" },
-        logo: { type: String, trim: true, default: "" },
+        logo: { type: String, trim: true, default: "", validate: [isSafeImageUrl, "Logo must be an https URL or a /path"] },
         phone: { type: String, trim: true, maxlength: 30, default: "" },
         whatsapp: { type: String, trim: true, maxlength: 30, default: "" },
         email: { type: String, trim: true, lowercase: true, maxlength: 160, default: "" },
         address: { type: String, trim: true, maxlength: 300, default: "" },
-        facebook: { type: String, trim: true, maxlength: 300, default: "" },
+        facebook: { type: String, trim: true, maxlength: 300, default: "", validate: [isHttpsUrl, "Facebook link must start with https://"] },
         announcement: {
             enabled: { type: Boolean, default: false },
             text: { type: String, trim: true, maxlength: 200, default: "" },

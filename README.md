@@ -160,6 +160,54 @@ Cancelled; Processing → Shipped | Cancelled; Shipped → Delivered | Cancelled
 deducted on Confirmed (or at order time with `STOCK_DEDUCT_ON=placed`) and
 returned on Cancelled.
 
+## API: dashboard content, products, stock, uploads (Phase 3)
+
+All need the dashboard Bearer token. Saves call the storefront's revalidate
+endpoint (`REVALIDATE_URL`, header `x-revalidate-secret`, body `{ tags:
+["storefront"] }`) when it is configured.
+
+| Method | Path | Body / query → response |
+|---|---|---|
+| GET | `/api/admin/site` | → `{ site, gateways: { bkash, sslcommerz }, warnings }` (full document) |
+| PUT | `/api/admin/site` | any subset of `storeName, storeNameBn, logo, phone, whatsapp, email, address, facebook, announcement, shipping, payment, footer, legal, seo` → same as GET |
+| GET | `/api/admin/landing` | → `{ landing, sectionKeys }` (hidden sections included) |
+| PUT | `/api/admin/landing` | `{ order?, productSlug?, sections?: { [key]: section } }` → same as GET |
+| GET | `/api/admin/products` | `q, status=active\|inactive\|all, page, limit` → `{ products, total, totalPages, currentPage, landingProductSlug }` |
+| POST | `/api/admin/products` | product fields + `stock?` (opening stock) → 201 `{ product }` |
+| GET | `/api/admin/products/:id` | → `{ product }` |
+| PUT | `/api/admin/products/:id` | any subset of product fields → `{ product }`; `stock` is ignored |
+| DELETE | `/api/admin/products/:id` | soft delete (`isActive: false`) |
+| POST | `/api/admin/products/:id/stock` | `{ change, reason: restock\|correction\|damaged, note? }` → `{ stock }` |
+| GET | `/api/admin/products/:id/stock-movements` | `page, limit` → `{ movements, total, ... }` |
+| POST | `/api/admin/uploads` | multipart `image` (+ `kind`: content\|product\|logo) → 201 `{ url, width, height, bytes }` |
+
+Rules worth knowing:
+
+- Site: nested objects are applied field by field, so sending
+  `{ payment: { bkash: { number } } }` changes only that number. `null` is
+  ignored; send `""` to clear text. The model validates zones, wallet numbers,
+  the advance rule and image/link URLs. `warnings` lists switched-on methods
+  that cannot work yet (gateway keys missing).
+- Landing: each section sent replaces that section after cleaning by
+  `services/landingSchema.js` (unknown keys dropped, lengths and list sizes
+  capped, at most 4 featured ingredients, images must be https or `/path`).
+  Sections not sent stay as they are. `productSlug` must be an active product.
+- Products: product fields are `name, nameBn, slug, shortDescription,
+  description, image, gallery (max 8), netWeight, isActive, sortOrder,
+  variants`. Slug comes from the English name when not given. Prices are
+  whole taka. The landing page's product cannot be hidden or deleted;
+  renaming its slug moves the landing pointer too.
+- Stock changes only through orders and the stock endpoint, and every change
+  is in the `StockMovement` ledger (`initial, restock, correction, damaged,
+  order, order_cancelled`) with the balance after it. A removal can never take
+  stock below zero.
+- Uploads: max 8 MB, JPG/PNG/WebP/AVIF. Every file is decoded and re-encoded
+  to WebP (EXIF/GPS dropped, longest edge 1600/1400/600 px by kind, 40 MP
+  decode cap), saved as `UPLOAD_DIR/YYYY/MM/<random>.webp` and served at
+  `/uploads/...` with a one year immutable cache and
+  `Cross-Origin-Resource-Policy: cross-origin`. Replaced images are not deleted
+  (no cleanup job yet).
+
 ## Layout
 
 ```
@@ -167,16 +215,18 @@ server.js            boot: env check, DB, listen, graceful shutdown
 app.js               Express app and middleware order (exported for tests)
 config/              env (validated at boot), db
 middlewares/         sanitize, rateLimiter, auth, validate, error
-models/              User, Product, SiteSettings, LandingPage, Order, Customer, Counter
+models/              User, Product, SiteSettings, LandingPage, Order, Customer, Counter, StockMovement
 services/pricing.js  the only place totals are computed
 services/paymentMethods.js  which methods are on and how each is collected
 services/publicShape.js  what the storefront is allowed to see
 services/payments/   bKash Tokenized, SSLCommerz, orchestration (index.js)
-services/            stock, orderNumber (+ guest token), customers, mailer
+services/landingSchema.js  server twin of the dashboard section forms
+services/            stock (+ ledger), images, revalidate, orderNumber, customers, mailer
+utils/               phone, variants, url (image/link rules), logger
 controllers/ routes/ storefront, checkout, orders, payment callbacks, admin
 seed/                defaults.js (copy of the storefront defaults), build.js
 scripts/             seed.js, createAdmin.js
-tests/               pricing, models, http, gateways (no DB); api, orders (DB)
+tests/               pricing, models, http, gateways, content (no DB); api, orders, admin (DB)
 ```
 
 See `HANDOVER.md` for status and the phase plan, `CLAUDE.md` for the traps.
