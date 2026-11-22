@@ -142,6 +142,23 @@ tables and courier branches, weight-based shipping, tax.
 - Deploy: Atlas, VPS (pm2, nginx, TLS, TRUST_PROXY=1), Vercel env
   (`NEXT_PUBLIC_API_URL`), CORS `CLIENT_URL`, uptime check on `/health`.
 
+## Go-live plan (agreed 2026-11-23, do after Phase 4)
+
+- Client bought the domain on Namecheap and a Hostinger KVM 1 VPS.
+- Layout: storefront + `/admin` on Vercel at the root domain; API on the VPS
+  at `api.<domain>` (Node 22, pm2, nginx, certbot); MongoDB stays on Atlas
+  (allow the VPS IP in Atlas Network Access); uploads on the VPS disk.
+- VPS: Ubuntu 24.04 plain. Sifat logs in as root with a password (no SSH
+  key, his choice): use a long random root password, fail2ban, and ufw with
+  only 22/80/443 open.
+- Atlas M0 has no backups: add a nightly `mongodump` cron on the VPS (and
+  back up the uploads folder).
+- Working style: give one step of commands at a time, Sifat pastes the
+  output, then the next step.
+- Steps: DNS → VPS base + security → Node/pm2/nginx/certbot → backend +
+  production `.env` + seed + admin → nginx + SSL → Atlas IP → Vercel +
+  env + domain → end-to-end test → backups + uptime check.
+
 ## Open questions for the client
 
 1. bKash and Nagad numbers, and whether each is personal, agent or merchant.
