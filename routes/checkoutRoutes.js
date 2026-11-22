@@ -19,6 +19,7 @@ export const itemRules = [
         .toInt(),
     body("zone").isIn(ZONE_KEYS).withMessage("ডেলিভারি এলাকা নির্বাচন করুন।"),
     body("paymentMethod").optional().isIn(PAYMENT_METHODS).withMessage("পেমেন্ট পদ্ধতি সঠিক নয়।"),
+    body("advanceMethod").optional().isIn(PAYMENT_METHODS.filter((m) => m !== "COD")).withMessage("পেমেন্ট পদ্ধতি সঠিক নয়।"),
 ];
 
 const router = Router();

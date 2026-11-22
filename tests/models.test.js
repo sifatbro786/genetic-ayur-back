@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import LandingPage from "../models/LandingPage.js";
 import Product from "../models/Product.js";
+import Order from "../models/Order.js";
 import SiteSettings from "../models/SiteSettings.js";
 import { buildSeed } from "../seed/build.js";
 
@@ -62,4 +63,39 @@ test("advance needs a wallet; at least one method must be on; zones unique", asy
 test("landing order rejects unknown and repeated sections", async () => {
     await rejects(new LandingPage({ ...seed.landing, order: ["hero", "popup"] }), "order.1");
     await rejects(new LandingPage({ ...seed.landing, order: ["hero", "hero"] }), "order");
+});
+
+test("bKash in gateway mode needs no number; Nagad cannot be a gateway", async () => {
+    const s = structuredClone(seed.site);
+    s.payment.bkash = { enabled: true, mode: "gateway", number: "" };
+    await new SiteSettings(s).validate();
+    s.payment.nagad = { enabled: true, mode: "gateway", number: "01712345678" };
+    await rejects(new SiteSettings(s), "payment.nagad.mode");
+});
+
+test("online payment counts as a prepaid method for the COD advance", async () => {
+    const s = structuredClone(seed.site);
+    s.payment.codAdvance = "delivery";
+    await rejects(new SiteSettings(s), "payment.codAdvance");
+    s.payment.online = { enabled: true };
+    await new SiteSettings(s).validate();
+});
+
+test("order refuses a bad phone, unknown status and empty items", async () => {
+    const base = {
+        orderNumber: "GA261122001",
+        orderItems: [{ slug: "x", name: "x", quantity: 1, units: 1, price: 10, lineTotal: 10 }],
+        shippingAddress: { name: "Test", phone: "01712345678", addressLine1: "House 1, Road 2, Dhaka", locationType: "dhaka_inside" },
+        paymentMethod: "COD",
+        itemsPrice: 10,
+        shippingPrice: 70,
+        totalPrice: 80,
+        payNow: 0,
+        payOnDelivery: 80,
+        guestAccessTokenHash: "a".repeat(64),
+    };
+    await new Order(base).validate();
+    await rejects(new Order({ ...base, shippingAddress: { ...base.shippingAddress, phone: "12345" } }), "shippingAddress.phone");
+    await rejects(new Order({ ...base, orderStatus: "Lost" }), "orderStatus");
+    await rejects(new Order({ ...base, orderItems: [] }), "orderItems");
 });

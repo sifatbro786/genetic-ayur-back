@@ -6,11 +6,13 @@ import { defaultLanding, defaultProduct, defaultSite } from "./defaults.js";
 export const buildSeed = () => {
     const site = structuredClone(defaultSite);
     // Not in the storefront defaults yet (the static demo was COD only).
-    // bKash/Nagad stay off until the owner enters the numbers in Settings.
+    // bKash/Nagad stay off until the owner enters the numbers in Settings;
+    // online (SSLCommerz) stays off until its keys are in .env.
     site.payment = {
         cod: { enabled: true },
-        bkash: { enabled: false, number: "", accountType: "personal", instructions: "" },
-        nagad: { enabled: false, number: "", accountType: "personal", instructions: "" },
+        bkash: { enabled: false, mode: "manual", number: "", accountType: "personal", instructions: "" },
+        nagad: { enabled: false, mode: "manual", number: "", accountType: "personal", instructions: "" },
+        online: { enabled: false, label: "কার্ড / মোবাইল ব্যাংকিং" },
         codAdvance: "none",
     };
 

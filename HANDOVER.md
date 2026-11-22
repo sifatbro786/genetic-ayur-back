@@ -1,11 +1,12 @@
 # HANDOVER: Genetic Ayur backend
 
-Last updated: 2026-11-22, end of Phase 1.
+Last updated: 2026-11-22, end of Phase 2 (code done; run `npm test` locally once, see below).
 
 ## Context
 
 - Client: Genetic Ayur, herbal brand. One product today (Kasturi Active Power,
-  slug `kasturi-active-power`), 3 to 5 more planned.
+  slug `kasturi-active-power`); could grow to 15 to 20 products, so every list
+  (API and storefront) must work for that many.
 - Storefront: `D:\Projects\Genetic Ayur\genetic-ayur-front` (Next.js 16, React 19,
   Tailwind v4). Landing page + `/admin` dashboard. Still static: all data in
   localStorage through `lib/stores.js`, seeded from `lib/defaults.js`. The
@@ -13,8 +14,10 @@ Last updated: 2026-11-22, end of Phase 1.
 - Backend: `D:\Projects\Genetic Ayur\genetic-ayur-back` (this repo), Express 5 +
   MongoDB. Built on the Footpath pattern (`D:\Projects\footpath\footpath-backend`)
   but lean.
-- Payment: no SSLCommerz. Cash on delivery, and manual bKash/Nagad: the shopper
-  sends money from their own app and types the TrxID; the shop verifies it.
+- Payment: COD and manual bKash/Nagad (shopper sends money, types the TrxID,
+  shop verifies) work today with no keys. bKash Tokenized Checkout and
+  SSLCommerz are built in and switch on when their keys are in `.env` (the
+  client has neither account yet).
 - Hosting plan: API on the STR Solutions VPS (pm2 + nginx), storefront on
   Vercel, MongoDB Atlas.
 
@@ -28,7 +31,7 @@ access token for order lookup (Phase 2), stock ledger idea (Phase 3).
 
 Dropped: categories and category tree, attributes/filters, cart and cart merge,
 coupons, campaigns and the campaign cron, A+ content, hero/navbar/offer popup
-models, wishlist, customer accounts and OTP, SSLCommerz, district/upazila
+models, wishlist, customer accounts and OTP, district/upazila
 tables and courier branches, weight-based shipping, tax.
 
 ## Phase plan
@@ -51,26 +54,36 @@ tables and courier branches, weight-based shipping, tax.
   in-memory MongoDB can download (they skipped in the build sandbox, so run
   `npm test` locally once).
 
-### Phase 2: orders and manual payment (NEXT)
+### Phase 2: orders and payments (DONE)
 
-- `Order` model with Footpath field names (`orderItems`, `shippingAddress`,
-  `orderStatus`, `paymentStatus`, `statusHistory`) plus `manualPayment
-  { method, senderNumber, trxId, amount, verifiedAt, verifiedBy }`.
-  Order number `GA` + `YYMMDD` + sequence via an atomic counter (not
-  countDocuments, which races).
-- `POST /api/orders`: same `itemRules` as calculate, plus name, phone
-  (normalised), address, note, honeypot field. Re-prices with `quoteOrder()`.
-  When `payNow > 0`: TrxID and sender number required; TrxID unique across
-  orders (sparse unique index) so one payment cannot back two orders.
-  Returns `orderNumber` + `guestAccessToken` (48 hex, select:false).
-- `orderLimiter` (per IP) and a per phone cap (example: 3 orders an hour).
-- `GET /api/orders/:orderNumber?token=` for the success/status page.
-- New order email to the shop (Gmail SMTP, fire and forget, never blocks the
-  order). Customer book upsert by phone.
-- Admin: list (status, payment, search, date), detail, status change with
-  history, verify or reject payment, admin notes, CSV export.
-- Stock: decide timing (see open questions). Atomic conditional `$inc` on
-  `stock` with `{ stock: { $gte: needed } }`, restored on cancel.
+- Models: `Order` (Footpath field names; `payNowVia`, `manualPayment`,
+  `gatewayPayment`, `stockDeducted`, hashed guest token), `Customer` (phone
+  book with order/delivered/cancelled counts), `Counter` (atomic sequences).
+- Order number `GA` + Dhaka date `YYMMDD` + daily sequence (`GA261122001`).
+- `POST /api/orders`: same `itemRules` as calculate, re-priced with
+  `quoteOrder()`, honeypot, per phone cap (3 an hour), `clientRequestId`
+  idempotency (retry returns the first order with a rotated token), TrxID
+  unique across orders.
+- Shopper: order status by `X-Order-Token`, retry gateway payment, resubmit a
+  rejected TrxID.
+- Payments: `services/paymentMethods.js` decides what is on (dashboard
+  settings AND keys present). Manual bKash/Nagad, bKash Tokenized Checkout
+  (token cache + refresh, execute with status query fallback), SSLCommerz
+  (init, validation API, tran_id lookup, IPN). Amount/currency/invoice are
+  checked; duplicate payments are flagged for refund; risky cards are held.
+- Dashboard: list with filters, search, status counts and a "payments to
+  verify" count; detail with the phone's history; status changes with an
+  allowed-transition table; verify/reject/refunded; gateway re-check; notes;
+  CSV export (formula injection safe); customers list.
+- Stock: checked at order time, deducted on Confirmed, returned on Cancelled
+  (`STOCK_DEDUCT_ON=placed` switches to deduct at order time).
+- Email alerts to the shop (new order, TrxID submitted, online payment
+  received) via Gmail SMTP; skipped while `SMTP_PASS` is empty.
+- Tests: 40 run without a database (pricing, models, HTTP, both gateway
+  clients against a fake fetch). `tests/orders.test.js` (15 DB tests: every
+  order, payment and admin flow above, gateways faked) and `api.test.js`
+  need MongoDB: the in-memory download was blocked in the build sandbox, so
+  **run `npm test` on your machine once** and fix anything red before Phase 3.
 
 ### Phase 3: dashboard write API
 
@@ -89,24 +102,33 @@ tables and courier branches, weight-based shipping, tax.
   `/api/storefront` with revalidate tags on the landing page; client hooks for
   the dashboard). Delete `lib/pricing.js`; the order form calls calculate.
 - Order form: product picker when more than one product is active, payment
-  method choice, bKash/Nagad instructions with the number, TrxID + sender
-  fields, success page by order number + token.
+  method choice from `site.payment.methods`, bKash/Nagad instructions with the
+  number, TrxID + sender fields when `requiresTrxId`, `clientRequestId` per
+  submit, hidden `website` honeypot. Save orderNumber + token in localStorage
+  before following `nextAction.url`.
+- New page `/order/[orderNumber]`: reads the token from localStorage, calls
+  `GET /api/orders/:n` with `X-Order-Token`, shows `?payment=` result, "Pay
+  again" (`canRetryPayment`) and "send TrxID again" (`canResubmitTrxId`).
 - Dashboard: real JWT login, pages switched to the admin API, payment
   verification UI.
-- Multi-product: `products` landing section (grid of other products), and the
-  order form preselects `landing.productSlug`.
+- Multi-product (up to 15 to 20): `products` landing section as a proper grid
+  with a product page per slug (`/products/[slug]`, ISR), and the order form
+  preselects `landing.productSlug`. Phase 3 admin products list needs
+  pagination/search for that size.
 - Deploy: Atlas, VPS (pm2, nginx, TLS, TRUST_PROXY=1), Vercel env
   (`NEXT_PUBLIC_API_URL`), CORS `CLIENT_URL`, uptime check on `/health`.
 
-## Open questions for the client (ask before Phase 2 is finished)
+## Open questions for the client
 
 1. bKash and Nagad numbers, and whether each is personal, agent or merchant.
+   (Entered in the dashboard Settings in Phase 3/4.)
 2. Should COD orders pay the delivery charge in advance (`codAdvance:
-   "delivery"`)? It cuts fake orders but lowers conversion. Default is off.
-3. Stock deduction: at order placement, or when the shop confirms by phone?
-   Recommendation: check at placement, deduct on Confirmed, restore on
-   Cancelled (fake COD orders then never lock stock).
-4. Which email receives new order alerts.
+   "delivery"`)? Cuts fake orders, lowers conversion. Default is off.
+3. Stock: built as recommended (deduct on Confirmed). Confirm with the client.
+4. New order alert email: `ORDER_NOTIFY_TO` is geneticayur@gmail.com; needs the
+   Gmail App Password in `SMTP_PASS`.
+5. Do they want a bKash merchant (PGW) account or SSLCommerz later? Code is
+   ready for both; only keys are missing.
 
 ## Decisions worth knowing
 
@@ -116,11 +138,27 @@ tables and courier branches, weight-based shipping, tax.
   (COD on, wallets off until numbers are entered).
 - Response envelopes are uniform here (unlike Footpath): `{ success, <name> }`.
 - Public GETs send `Cache-Control: public, max-age=30, stale-while-revalidate=120`.
+- Payment trust model: see CLAUDE.md. Callback URLs are public; the server
+  always asks the gateway itself before marking anything paid.
+- Gateway callbacks redirect to `STOREFRONT_URL/order/<n>?payment=...`; the
+  storefront must build that page in Phase 4.
+- Existing databases need no migration for Phase 2: missing `payment.bkash.mode`
+  reads as manual and missing `payment.online` as off.
+- Nagad has no direct gateway here (its PGW needs RSA key exchange and a
+  separate merchant contract); online Nagad goes through SSLCommerz.
+- Refunds are recorded, not executed: done in the bKash/SSLCommerz panel, then
+  "refunded" in the dashboard.
+- `orderLimiter` is skipped when NODE_ENV=test (the suite places many orders
+  from one IP); the per phone cap is tested instead.
 - Images in the seed are storefront-relative paths (`/images/...`). Uploaded
   images in Phase 3 will be absolute URLs; the storefront must accept both.
 
 ## Local setup reminder
 
-`.env` was created with a generated `JWT_SECRET`, local Mongo URI and
-`CLIENT_URL=http://localhost:3000`. Fill in the Atlas URI and the Gmail App
-Password before Phase 2 testing.
+`.env` has the Atlas URI and a generated `JWT_SECRET`. Still to fill:
+`SMTP_PASS` (Gmail App Password), `API_PUBLIC_URL` (public https API URL once
+deployed; use an ngrok URL to try the gateways locally), and gateway keys when
+the client gets them (`BKASH_*`, `SSLCZ_*`). For SSLCommerz sandbox testing,
+a free sandbox store from developer.sslcommerz.com works with the default
+`SSLCZ_SANDBOX=true`. Never point `MONGODB_TEST_URI` at the Atlas database:
+the tests wipe it.

@@ -64,3 +64,59 @@ test("security headers are set and x-powered-by is gone", async () => {
     assert.equal(res.headers.get("x-powered-by"), null);
     assert.ok(res.headers.get("content-security-policy"));
 });
+
+const order = (over = {}) => ({
+    items: [{ slug: "kasturi-active-power", options: [{ name: "প্যাক", value: "১ কৌটা" }], quantity: 1 }],
+    zone: "dhaka_inside",
+    name: "Test Buyer",
+    phone: "01712345678",
+    address: "House 1, Road 2, Mirpur, Dhaka",
+    ...over,
+});
+
+test("order validation: phone, address, TrxID format", async () => {
+    let res = await post("/api/orders", JSON.stringify(order({ phone: "12345" })));
+    assert.equal(res.status, 400);
+    assert.equal((await res.json()).errors[0].field, "phone");
+    res = await post("/api/orders", JSON.stringify(order({ address: "short" })));
+    assert.equal(res.status, 400);
+    res = await post("/api/orders", JSON.stringify(order({ trxId: "<script>" })));
+    assert.equal(res.status, 400);
+    res = await post("/api/orders", JSON.stringify(order({ phone: { $ne: "" } })));
+    assert.equal(res.status, 400);
+});
+
+test("honeypot is refused before the database", async () => {
+    const res = await post("/api/orders", JSON.stringify(order({ website: "http://spam" })));
+    assert.equal(res.status, 400);
+});
+
+test("order lookup rejects a malformed order number", async () => {
+    const res = await fetch(`${base}/api/orders/..%2Fadmin`, { headers: { "X-Order-Token": "x" } });
+    assert.equal(res.status, 400);
+});
+
+test("guest token header passes the CORS preflight", async () => {
+    const res = await fetch(`${base}/api/orders/GA261122001`, {
+        method: "OPTIONS",
+        headers: { Origin: "http://localhost:3000", "Access-Control-Request-Method": "GET", "Access-Control-Request-Headers": "x-order-token" },
+    });
+    assert.equal(res.status, 204);
+    assert.match(res.headers.get("access-control-allow-headers") || "", /X-Order-Token/i);
+});
+
+test("gateway fail/cancel posts are not blocked by CORS and redirect to the storefront", async () => {
+    const res = await fetch(`${base}/api/payments/sslcommerz/cancel`, {
+        method: "POST",
+        redirect: "manual",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: "https://sandbox.sslcommerz.com" },
+        body: "tran_id=GA261122001-1&status=CANCELLED",
+    });
+    assert.equal(res.status, 303);
+    assert.match(res.headers.get("location"), /\/order\/GA261122001\?payment=cancelled$/);
+});
+
+test("admin order routes need a token", async () => {
+    assert.equal((await fetch(`${base}/api/admin/orders`)).status, 401);
+    assert.equal((await fetch(`${base}/api/admin/customers`)).status, 401);
+});

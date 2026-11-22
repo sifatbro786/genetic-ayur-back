@@ -8,7 +8,8 @@ import { normalizeBdPhone } from "../utils/phone.js";
 
 // Same keys as Footpath's ShippingConfig so orders map 1:1 with the base.
 export const ZONE_KEYS = ["dhaka_inside", "dhaka_sub", "outside_dhaka"];
-export const PAYMENT_METHODS = ["COD", "bKash", "Nagad"];
+// "Online" is SSLCommerz (cards, all wallets, net banking in one hosted page).
+export const PAYMENT_METHODS = ["COD", "bKash", "Nagad", "Online"];
 
 const zoneSchema = new mongoose.Schema(
     {
@@ -20,12 +21,18 @@ const zoneSchema = new mongoose.Schema(
     { _id: false },
 );
 
-// bKash and Nagad are manual: the shopper sends money to this number from
-// their own app and types the TrxID into the order form. The shop verifies it
-// in the dashboard. No gateway, no API keys.
+// A wallet works in one of two modes:
+//   manual  : the shopper sends money to `number` from their own app and types
+//             the TrxID; the shop verifies it in the dashboard. No API keys.
+//   gateway : bKash Tokenized Checkout (keys in .env). The shopper is sent to
+//             bKash and the payment is confirmed server to server. Nagad has
+//             no direct gateway here; online Nagad goes through SSLCommerz.
+// Gateway mode with missing keys hides the method instead of taking orders
+// nobody can pay (services/paymentMethods.js).
 const walletSchema = new mongoose.Schema(
     {
         enabled: { type: Boolean, default: false },
+        mode: { type: String, enum: ["manual", "gateway"], default: "manual" },
         number: { type: String, trim: true, default: "" },
         // Decides the wording the storefront shows: "Send Money" for a
         // personal number, "Cash Out" for agent, "Payment" for merchant.
@@ -66,6 +73,11 @@ const siteSettingsSchema = new mongoose.Schema(
             cod: { enabled: { type: Boolean, default: true } },
             bkash: { type: walletSchema, default: () => ({}) },
             nagad: { type: walletSchema, default: () => ({}) },
+            // SSLCommerz hosted payment page. Needs SSLCZ_* in .env.
+            online: {
+                enabled: { type: Boolean, default: false },
+                label: { type: String, trim: true, maxlength: 60, default: "কার্ড / মোবাইল ব্যাংকিং" },
+            },
             // "delivery": a COD order must pay the delivery charge upfront by
             // bKash/Nagad (cuts fake orders); the product price is paid on
             // delivery. "none": nothing is paid before delivery.
@@ -93,26 +105,22 @@ siteSettingsSchema.pre("validate", function () {
     if (new Set(keys).size !== keys.length) this.invalidate("shipping", "Each delivery zone can appear only once");
 
     const p = this.payment || {};
+    if (p.nagad?.mode === "gateway") this.invalidate("payment.nagad.mode", "Nagad has no direct gateway; use manual, or SSLCommerz (Online)");
     for (const name of ["bkash", "nagad"]) {
         const w = p[name];
-        if (!w?.enabled) continue;
+        // A gateway wallet is paid inside bKash's own page; no number shown.
+        if (!w?.enabled || w.mode === "gateway") continue;
         const n = normalizeBdPhone(w.number);
         if (!n) this.invalidate(`payment.${name}.number`, `${name === "bkash" ? "bKash" : "Nagad"} number is not a valid mobile number`);
         else w.number = n;
     }
-    const wallet = p.bkash?.enabled || p.nagad?.enabled;
+    const wallet = p.bkash?.enabled || p.nagad?.enabled || p.online?.enabled;
     if (!p.cod?.enabled && !wallet) this.invalidate("payment", "Turn on at least one payment method");
     // An advance can only be collected through a wallet.
     if (p.codAdvance === "delivery" && !wallet) {
-        this.invalidate("payment.codAdvance", "Turn on bKash or Nagad before asking for the delivery charge in advance");
+        this.invalidate("payment.codAdvance", "Turn on bKash, Nagad or online payment before asking for the delivery charge in advance");
     }
 });
-
-/** Methods the storefront may offer right now, in display order. */
-siteSettingsSchema.methods.enabledPaymentMethods = function () {
-    const p = this.payment || {};
-    return [p.cod?.enabled && "COD", p.bkash?.enabled && "bKash", p.nagad?.enabled && "Nagad"].filter(Boolean);
-};
 
 siteSettingsSchema.statics.getMain = function () {
     return this.findOne({ key: "main" });

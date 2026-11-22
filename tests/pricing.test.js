@@ -80,6 +80,41 @@ test("bKash pays everything now; COD with advance pays delivery now", () => {
     assert.equal(c.totals.requiresTrxId, true);
 });
 
+test("a gateway method is offered only when its keys exist", () => {
+    const s = site({ bkash: { enabled: true, mode: "gateway" }, online: { enabled: true } });
+    let r = run(one(), {}, product(), s);
+    assert.deepEqual(r.totals.availablePaymentMethods, ["COD"]);
+    assert.equal(run(one(), { paymentMethod: "Online" }, product(), s).code, "PAYMENT_UNAVAILABLE");
+    r = run(one(), { paymentMethod: "bKash", gateways: { bkash: true, sslcommerz: true } }, product(), s);
+    assert.deepEqual(r.totals.availablePaymentMethods, ["COD", "bKash", "Online"]);
+    assert.equal(r.totals.payNow, 1270);
+    assert.equal(r.totals.requiresTrxId, false);
+    assert.equal(r.totals.redirectsToGateway, true);
+    assert.deepEqual(r.totals.payNowVia, { method: "bKash", flow: "gateway", provider: "bkash" });
+});
+
+test("COD advance: channel chosen by advanceMethod, falls back when none is reachable", () => {
+    const s = site({ codAdvance: "delivery", online: { enabled: true } });
+    let r = run(one(), { paymentMethod: "COD", advanceMethod: "Online", gateways: { sslcommerz: true } }, product(), s);
+    assert.equal(r.totals.payNow, 70);
+    assert.equal(r.totals.payNowVia.method, "Online");
+    assert.equal(r.totals.redirectsToGateway, true);
+    assert.deepEqual(r.totals.advanceMethods, ["bKash", "Online"]);
+    assert.equal(run(one(), { paymentMethod: "COD", advanceMethod: "Nagad" }, product(), s).code, "ADVANCE_METHOD_UNAVAILABLE");
+    // Only a keyless gateway as prepaid option: the advance is skipped, not the order.
+    const g = site({ codAdvance: "delivery", bkash: { enabled: false }, online: { enabled: true } });
+    r = run(one(), { paymentMethod: "COD" }, product(), g);
+    assert.equal(r.totals.payNow, 0);
+    assert.equal(r.totals.payNowVia, null);
+});
+
+test("COD advance is not asked when the parcel ships free", () => {
+    const items = [{ slug: "kasturi-active-power", options: [{ name: "প্যাক", value: "২ কৌটা" }], quantity: 1 }];
+    const r = run(items, { paymentMethod: "COD" }, product(), site({ codAdvance: "delivery" }));
+    assert.equal(r.totals.payNow, 0);
+    assert.equal(r.totals.requiresTrxId, false);
+});
+
 test("phone normaliser accepts Bangla digits and +880", () => {
     assert.equal(normalizeBdPhone("০১৭১২৩৪৫৬৭৮"), "01712345678");
     assert.equal(normalizeBdPhone("+880 1712-345678"), "01712345678");

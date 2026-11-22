@@ -12,7 +12,10 @@ import { errorHandler, notFound } from "./middlewares/error.js";
 import { globalApiLimiter } from "./middlewares/rateLimiter.js";
 import { sanitizeRequest } from "./middlewares/sanitize.js";
 import adminAuthRoutes from "./routes/admin/authRoutes.js";
+import { customerRouter as adminCustomerRoutes, orderRouter as adminOrderRoutes } from "./routes/admin/orderRoutes.js";
 import checkoutRoutes from "./routes/checkoutRoutes.js";
+import orderRoutes from "./routes/orderRoutes.js";
+import paymentRoutes from "./routes/paymentRoutes.js";
 import storefrontRoutes from "./routes/storefrontRoutes.js";
 
 const app = express();
@@ -21,11 +24,16 @@ app.disable("x-powered-by");
 if (env.trustProxy) app.set("trust proxy", env.trustProxy);
 
 // ═══ Middleware order is load-bearing (same as the Footpath base) ═══
-//   compression → helmet → cors → body parsers → sanitize → hpp → limiter → routes
+//   compression → helmet → [gateway callbacks] → cors → body parsers → sanitize → hpp → limiter → routes
 // sanitize MUST precede hpp: it makes Express 5's req.query writable.
 
 app.use(compression());
 app.use(helmet());
+
+// Gateway callbacks come from bKash/SSLCommerz pages and servers, not from
+// the storefront, so they sit before CORS with their own parser, sanitizer
+// and limiter (routes/paymentRoutes.js).
+app.use("/api/payments", paymentRoutes);
 
 const allowed = new Set([...env.clientUrls, ...(env.isProd ? [] : ["http://localhost:3000"])]);
 app.use(
@@ -41,7 +49,9 @@ app.use(
             err.status = 403;
             return cb(err);
         },
-        allowedHeaders: ["Content-Type", "Authorization"],
+        // X-Order-Token: the guest order token, sent as a header so it never
+        // lands in URLs, server logs or browser history.
+        allowedHeaders: ["Content-Type", "Authorization", "X-Order-Token"],
         methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
         maxAge: 600,
     }),
@@ -65,7 +75,10 @@ app.get("/health", (_req, res) => {
 app.use("/api", globalApiLimiter);
 app.use("/api", storefrontRoutes);
 app.use("/api/checkout", checkoutRoutes);
+app.use("/api/orders", orderRoutes);
 app.use("/api/admin/auth", adminAuthRoutes);
+app.use("/api/admin/orders", adminOrderRoutes);
+app.use("/api/admin/customers", adminCustomerRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
