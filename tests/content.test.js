@@ -50,6 +50,21 @@ test("image URLs: https or site path only", () => {
     assert.equal(cleanSection("benefits", { image: "javascript:alert(1)" }).ok, false);
 });
 
+test("image URLs: local http uploads only outside production", () => {
+    const local = "http://localhost:5000/uploads/2026/11/ab.webp";
+    const prev = process.env.NODE_ENV;
+    try {
+        process.env.NODE_ENV = "development";
+        assert.equal(isSafeImageUrl(local), true);
+        assert.equal(isSafeImageUrl("http://127.0.0.1:5000/uploads/a.webp"), true);
+        assert.equal(isSafeImageUrl("http://localhost.evil.com/a.webp"), false);
+        process.env.NODE_ENV = "production";
+        assert.equal(isSafeImageUrl(local), false);
+    } finally {
+        process.env.NODE_ENV = prev;
+    }
+});
+
 test("images are re-encoded to WebP, shrunk and stripped of metadata", async () => {
     const big = await sharp({ create: { width: 3000, height: 2000, channels: 3, background: "#2f5d3a" } })
         .jpeg()

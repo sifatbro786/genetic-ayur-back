@@ -1,17 +1,17 @@
 # HANDOVER: Genetic Ayur backend
 
-Last updated: 2026-11-23, end of Phase 3 (code done; run `npm test` locally, see below).
+Last updated: 2026-11-23, end of Phase 4 (storefront and dashboard wired to this API). Next: go live (Phase 5).
 
 ## Context
 
 - Client: Genetic Ayur, herbal brand. One product today (Kasturi Active Power,
   slug `kasturi-active-power`); could grow to 15 to 20 products, so every list
   (API and storefront) must work for that many.
-- Storefront: `D:\Projects\Genetic Ayur\genetic-ayur-front` (Next.js 16, React 19,
-  Tailwind v4). Landing page + `/admin` dashboard. Still static: all data in
-  localStorage through `lib/stores.js`, seeded from `lib/defaults.js`. The
-  client approved this design.
-- Backend: `D:\Projects\Genetic Ayur\genetic-ayur-back` (this repo), Express 5 +
+- Storefront: `E:\Works\Genetic-Ayur\genetic-ayur-front` (Next.js 16 with Cache
+  Components, React 19, Tailwind v4). Landing page, product pages, order page
+  and the `/admin` dashboard, all on this API since Phase 4. The client
+  approved the design.
+- Backend: `E:\Works\Genetic-Ayur\genetic-ayur-back` (this repo), Express 5 +
   MongoDB. Built on the Footpath pattern (`D:\Projects\footpath\footpath-backend`)
   but lean.
 - Payment: COD and manual bKash/Nagad (shopper sends money, types the TrxID,
@@ -111,36 +111,66 @@ tables and courier branches, weight-based shipping, tax.
   re-encoding, upload serving). `tests/admin.test.js` (11 DB tests) plus the
   Phase 2 DB suites run on your machine.
 
-### Phase 4: storefront wiring and launch
+### Phase 4: storefront wiring (DONE)
 
-- Storefront revalidate route: `POST /api/revalidate`, checks
-  `x-revalidate-secret` against its own `REVALIDATE_SECRET` (same value as the
-  API's), calls `revalidateTag` for each tag in `{ tags }`. Then set
-  `REVALIDATE_URL=https://<storefront>/api/revalidate` in the API's `.env`.
-- `next.config.mjs` `images.remotePatterns`: add the API host (`/uploads/**`)
-  next to images.unsplash.com.
-- Dashboard: image fields upload to `/api/admin/uploads` and store the URL;
-  product page uses the stock endpoint (not the product form) and shows the
-  movement history; products list with search/pagination.
-- `genetic-ayur-front`: `lib/stores.js` reads from the API (server fetch of
-  `/api/storefront` with revalidate tags on the landing page; client hooks for
-  the dashboard). Delete `lib/pricing.js`; the order form calls calculate.
-- Order form: product picker when more than one product is active, payment
-  method choice from `site.payment.methods`, bKash/Nagad instructions with the
-  number, TrxID + sender fields when `requiresTrxId`, `clientRequestId` per
-  submit, hidden `website` honeypot. Save orderNumber + token in localStorage
-  before following `nextAction.url`.
-- New page `/order/[orderNumber]`: reads the token from localStorage, calls
-  `GET /api/orders/:n` with `X-Order-Token`, shows `?payment=` result, "Pay
-  again" (`canRetryPayment`) and "send TrxID again" (`canResubmitTrxId`).
-- Dashboard: real JWT login, pages switched to the admin API, payment
-  verification UI.
-- Multi-product (up to 15 to 20): `products` landing section as a proper grid
-  with a product page per slug (`/products/[slug]`, ISR), and the order form
-  preselects `landing.productSlug`. Phase 3 admin products list needs
-  pagination/search for that size.
-- Deploy: Atlas, VPS (pm2, nginx, TLS, TRUST_PROXY=1), Vercel env
-  (`NEXT_PUBLIC_API_URL`), CORS `CLIENT_URL`, uptime check on `/health`.
+Storefront (`genetic-ayur-front`):
+- `lib/api/storefront.js`: one server read of `/api/storefront` with
+  `"use cache"`, `cacheTag("storefront")`, 5 minute revalidate as a safety
+  net. A failed fetch throws (last good copy keeps serving; never placeholder
+  prices). The build needs the API reachable.
+- `POST /api/revalidate`: checks `x-revalidate-secret` (hashed, timing safe),
+  accepts up to 10 `[a-z0-9:_-]` tags, `revalidateTag(tag, { expire: 0 })` so
+  the next visit gets the new content.
+- Landing page, legal pages, metadata and 404 render from API data on the
+  server. Static demo stores (`lib/stores.js`, `lib/orders.js`,
+  `lib/pricing.js`) deleted.
+- Order form: numbers only from calculate (debounced, stale answers ignored),
+  product picker when more than one product is active, payment method choice
+  from `site.payment.methods`, COD advance method choice, manual bKash/Nagad
+  box (number, Send Money / Cash Out / Payment wording, TrxID + sender),
+  `clientRequestId` per attempt, hidden `website` honeypot, server field
+  errors shown next to inputs, re-quote on stock/pack/zone errors. Token saved
+  in localStorage before a gateway redirect.
+- `/order/[orderNumber]`: token from localStorage as `X-Order-Token`,
+  `?payment=` banner, timeline, Pay again, resend TrxID after a rejection.
+- `/products/[slug]` (prerendered for known slugs, others on first visit) and
+  the `products` landing section (grid, hidden while only one product exists).
+- Dashboard: JWT login, sidebar counts (pending + payments to verify), orders
+  with URL filters, search, dates, paging, CSV export and an order panel
+  (verify/reject TrxID, refunded, gateway recheck, status buttons from
+  STATUS_FLOW, notes, phone history); products list with search/paging, create,
+  edit, hide, stock panel with the movement ledger; landing page editor with
+  every section key and the landing product picker; settings with payments
+  (COD, bKash manual/gateway, Nagad, SSLCommerz, COD advance), SEO, gateway key
+  status and warnings, password change. Images upload to `/api/admin/uploads`.
+
+Backend changes in Phase 4:
+- `utils/url.js`: `http://localhost` / `127.0.0.1` image URLs are accepted
+  outside production, so uploads work on a dev machine (`API_PUBLIC_URL` is
+  http there). Production still accepts only https and `/paths`.
+- `config/env.js`: production refuses to start without an https
+  `API_PUBLIC_URL` (uploaded image URLs are built from it).
+- `services/stock.js`: confirm/cancel stock changes call the storefront
+  revalidate, so a sold out pack stops being offered.
+- Tests: 49 run without a database (adds the local upload URL rule). DB suites
+  still need `npm test` on your machine.
+
+Checked in Phase 4: lint clean, `next build` passes against a mock API built
+from this repo's seed and public shapes; a headless browser placed a bKash
+manual order through the form, opened the order page with and without the
+token, and drove the dashboard (login, verify payment, confirm, note, product
+save, stock change, landing save, settings save). Not yet run against a real
+database: do the end-to-end test below before launch.
+
+### Phase 5: go live
+
+Follow the go-live plan below, then the end-to-end test:
+1. Place a COD order, a bKash manual order (wrong TrxID, reject, resend), and
+   confirm, ship, deliver each in the dashboard. Check the stock ledger.
+2. Change a price and a landing text in the dashboard; the live page must show
+   it on the next reload (revalidate route working).
+3. Upload a logo and a product photo; check they load on the live site.
+4. Turn on bKash/Nagad with the client's real numbers.
 
 ## Go-live plan (agreed 2026-11-23, do after Phase 4)
 
@@ -158,6 +188,14 @@ tables and courier branches, weight-based shipping, tax.
 - Steps: DNS → VPS base + security → Node/pm2/nginx/certbot → backend +
   production `.env` + seed + admin → nginx + SSL → Atlas IP → Vercel +
   env + domain → end-to-end test → backups + uptime check.
+- Production `.env` (API): `NODE_ENV=production`, `CLIENT_URL=https://<domain>`
+  (plus `https://www.<domain>` if used), `STOREFRONT_URL=https://<domain>`,
+  `API_PUBLIC_URL=https://api.<domain>`, `REVALIDATE_URL=https://<domain>/api/revalidate`,
+  `UPLOAD_DIR` outside the code folder (e.g. `/var/lib/genetic-ayur/uploads`),
+  a new `JWT_SECRET` and `REVALIDATE_SECRET`, `SMTP_PASS`, no `ADMIN_PASSWORD`.
+- Vercel env: `NEXT_PUBLIC_API_URL=https://api.<domain>`,
+  `NEXT_PUBLIC_SITE_URL=https://<domain>`, `REVALIDATE_SECRET` (same as the
+  API). The API must be live before the first Vercel build.
 
 ## Open questions for the client
 
@@ -200,10 +238,13 @@ tables and courier branches, weight-based shipping, tax.
 
 ## Local setup reminder
 
-`.env` has the Atlas URI and a generated `JWT_SECRET`. Still to fill:
-`SMTP_PASS` (Gmail App Password), `API_PUBLIC_URL` (public https API URL once
-deployed; use an ngrok URL to try the gateways locally), and gateway keys when
-the client gets them (`BKASH_*`, `SSLCZ_*`). For SSLCommerz sandbox testing,
-a free sandbox store from developer.sslcommerz.com works with the default
-`SSLCZ_SANDBOX=true`. Never point `MONGODB_TEST_URI` at the Atlas database:
-the tests wipe it.
+API `.env`: Atlas URI, generated `JWT_SECRET` and `REVALIDATE_SECRET`,
+`REVALIDATE_URL=http://localhost:3000/api/revalidate`. Storefront `.env`:
+`NEXT_PUBLIC_API_URL=http://localhost:5000`, the same `REVALIDATE_SECRET`.
+Still to fill: `SMTP_PASS` (Gmail App Password), gateway keys when the client
+gets them (`BKASH_*`, `SSLCZ_*`). `ADMIN_PASSWORD` in the API `.env` is a
+throwaway: create the account, change the password in Dashboard > Settings,
+then delete the line. For SSLCommerz sandbox testing, a free sandbox store from
+developer.sslcommerz.com works with `SSLCZ_SANDBOX=true` (needs a public
+`API_PUBLIC_URL`, e.g. ngrok). Never point `MONGODB_TEST_URI` at the Atlas
+database: the tests wipe it.

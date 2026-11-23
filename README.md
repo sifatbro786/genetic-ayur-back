@@ -162,9 +162,9 @@ returned on Cancelled.
 
 ## API: dashboard content, products, stock, uploads (Phase 3)
 
-All need the dashboard Bearer token. Saves call the storefront's revalidate
-endpoint (`REVALIDATE_URL`, header `x-revalidate-secret`, body `{ tags:
-["storefront"] }`) when it is configured.
+All need the dashboard Bearer token. Saves (and order confirm/cancel stock
+changes) call the storefront's revalidate endpoint (`REVALIDATE_URL`, header
+`x-revalidate-secret`, body `{ tags: ["storefront"] }`) when it is configured.
 
 | Method | Path | Body / query → response |
 |---|---|---|
@@ -201,7 +201,9 @@ Rules worth knowing:
   is in the `StockMovement` ledger (`initial, restock, correction, damaged,
   order, order_cancelled`) with the balance after it. A removal can never take
   stock below zero.
-- Uploads: max 8 MB, JPG/PNG/WebP/AVIF. Every file is decoded and re-encoded
+- Uploads: max 8 MB, JPG/PNG/WebP/AVIF. The URL is `API_PUBLIC_URL` +
+  `/uploads/...` (https in production; `http://localhost` is accepted outside
+  production so local uploads validate). Every file is decoded and re-encoded
   to WebP (EXIF/GPS dropped, longest edge 1600/1400/600 px by kind, 40 MP
   decode cap), saved as `UPLOAD_DIR/YYYY/MM/<random>.webp` and served at
   `/uploads/...` with a one year immutable cache and

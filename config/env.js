@@ -93,6 +93,9 @@ export const envProblems = () => {
     if (isProd && (bkashConfigured() || sslcommerzConfigured()) && !/^https:\/\//.test(env.apiPublicUrl)) {
         problems.push("API_PUBLIC_URL must be the public https URL of this API when a payment gateway is configured");
     }
+    // Uploaded image URLs are built from it and the storefront is https, so
+    // an http value would store images browsers block as mixed content.
+    if (isProd && !/^https:\/\//.test(env.apiPublicUrl)) problems.push("API_PUBLIC_URL must be the public https URL of this API in production (uploaded images use it)");
     if (env.revalidate.url && env.revalidate.secret.length < 24) problems.push("REVALIDATE_SECRET must be at least 24 characters when REVALIDATE_URL is set");
     if (isProd && env.sslcommerz.sandbox && sslcommerzConfigured()) {
         console.warn("SSLCZ_SANDBOX is on in production: payments go to the SSLCommerz sandbox.");

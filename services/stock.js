@@ -11,6 +11,7 @@
 import Order from "../models/Order.js";
 import Product from "../models/Product.js";
 import StockMovement from "../models/StockMovement.js";
+import { revalidateStorefront } from "./revalidate.js";
 
 export const unitsByProduct = (orderItems) => {
     const map = new Map();
@@ -69,6 +70,10 @@ export const deductForOrder = async (order) => {
     if (claim.modifiedCount !== 1) return { ok: true, already: true };
     const r = await takeUnits(unitsByProduct(order.orderItems), orderMeta(order, "order"));
     if (!r.ok) await Order.updateOne({ _id: order._id }, { $set: { stockDeducted: false } });
+    // The storefront shows "out of stock" from cached data; refresh it so a
+    // pack that just sold out stops being offered (orders are re-checked on
+    // the server either way).
+    else revalidateStorefront(["storefront"]);
     return r;
 };
 
@@ -76,6 +81,7 @@ export const restoreForOrder = async (order) => {
     const claim = await Order.updateOne({ _id: order._id, stockDeducted: true }, { $set: { stockDeducted: false } });
     if (claim.modifiedCount !== 1) return false;
     await returnUnits(unitsByProduct(order.orderItems), orderMeta(order, "order_cancelled"));
+    revalidateStorefront(["storefront"]);
     return true;
 };
 

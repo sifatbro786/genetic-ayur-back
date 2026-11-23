@@ -55,6 +55,8 @@ Tokenized Checkout and SSLCommerz switched on by keys in `.env`.
 - System-generated status or note entries omit `updatedBy`/`addedBy` (Footpath
   trap: the string "system" silently vanishes on an ObjectId field).
 - No PII in logs: use `utils/logger.js` `debug()`.
+- The storefront caches `/api/storefront` under the `storefront` tag. Any new
+  write that changes what shoppers see must call `revalidateStorefront()`.
 
 ## Conventions
 
