@@ -1,6 +1,6 @@
 # HANDOVER: Genetic Ayur backend
 
-Last updated: 2026-11-23, end of Phase 4 (storefront and dashboard wired to this API). Next: go live (Phase 5).
+Last updated: 2026-11-23, Phase 5: LIVE at https://geneticayur.com (API at https://api.geneticayur.com). Next: backups, client open questions, then improvements.
 
 ## Context
 
@@ -18,8 +18,9 @@ Last updated: 2026-11-23, end of Phase 4 (storefront and dashboard wired to this
   shop verifies) work today with no keys. bKash Tokenized Checkout and
   SSLCommerz are built in and switch on when their keys are in `.env` (the
   client has neither account yet).
-- Hosting plan: API on the STR Solutions VPS (pm2 + nginx), storefront on
-  Vercel, MongoDB Atlas.
+- Hosting (live since 2026-11-23): storefront, dashboard and API all on the
+  client's Hostinger VPS (pm2 + nginx + Let's Encrypt), MongoDB Atlas M0.
+  Vercel is no longer used. See "Production (live)" below.
 
 ## What was kept from Footpath, and what was dropped
 
@@ -162,40 +163,100 @@ token, and drove the dashboard (login, verify payment, confirm, note, product
 save, stock change, landing save, settings save). Not yet run against a real
 database: do the end-to-end test below before launch.
 
-### Phase 5: go live
+### Phase 5: go live (DONE 2026-11-23)
 
-Follow the go-live plan below, then the end-to-end test:
-1. Place a COD order, a bKash manual order (wrong TrxID, reject, resend), and
-   confirm, ship, deliver each in the dashboard. Check the stock ledger.
-2. Change a price and a landing text in the dashboard; the live page must show
-   it on the next reload (revalidate route working).
-3. Upload a logo and a product photo; check they load on the live site.
+Site is live. Plan changed from the earlier draft: the storefront is NOT on
+Vercel; everything runs on the VPS (see "Production (live)").
+
+End-to-end checks to keep doing after any release:
+1. COD order and a bKash manual order (wrong TrxID, reject, resend), then
+   confirm, ship, deliver in the dashboard. Check the stock ledger.
+2. Change a price and a landing text; the live page shows it on the next
+   reload (revalidate route working).
+3. Upload a logo and a product photo; they load from `https://api.geneticayur.com/uploads/...`.
 4. Turn on bKash/Nagad with the client's real numbers.
 
-## Go-live plan (agreed 2026-11-23, do after Phase 4)
+Still to do after launch:
+- Backups: Atlas M0 has none. Nightly `mongodump` cron on the VPS (needs
+  `mongodb-database-tools`) plus the uploads folder, kept off the server too.
+- fail2ban for SSH (root logs in with a password).
+- Uptime check on `https://api.geneticayur.com/health` and the home page.
+- Production uses the dev database (`genetic-ayur`): remove or cancel any
+  test orders left from development.
+- Both GitHub repos are public. Making them private needs a deploy key on the
+  VPS for `git pull`.
+- Storefront `npm audit`: 7 moderate, all in dev/build tooling (eslint chain);
+  nothing in the runtime. Review on the next dependency update.
 
-- Client bought the domain on Namecheap and a Hostinger KVM 1 VPS.
-- Layout: storefront + `/admin` on Vercel at the root domain; API on the VPS
-  at `api.<domain>` (Node 22, pm2, nginx, certbot); MongoDB stays on Atlas
-  (allow the VPS IP in Atlas Network Access); uploads on the VPS disk.
-- VPS: Ubuntu 24.04 plain. Sifat logs in as root with a password (no SSH
-  key, his choice): use a long random root password, fail2ban, and ufw with
-  only 22/80/443 open.
-- Atlas M0 has no backups: add a nightly `mongodump` cron on the VPS (and
-  back up the uploads folder).
-- Working style: give one step of commands at a time, Sifat pastes the
-  output, then the next step.
-- Steps: DNS → VPS base + security → Node/pm2/nginx/certbot → backend +
-  production `.env` + seed + admin → nginx + SSL → Atlas IP → Vercel +
-  env + domain → end-to-end test → backups + uptime check.
-- Production `.env` (API): `NODE_ENV=production`, `CLIENT_URL=https://<domain>`
-  (plus `https://www.<domain>` if used), `STOREFRONT_URL=https://<domain>`,
-  `API_PUBLIC_URL=https://api.<domain>`, `REVALIDATE_URL=https://<domain>/api/revalidate`,
-  `UPLOAD_DIR` outside the code folder (e.g. `/var/lib/genetic-ayur/uploads`),
-  a new `JWT_SECRET` and `REVALIDATE_SECRET`, `SMTP_PASS`, no `ADMIN_PASSWORD`.
-- Vercel env: `NEXT_PUBLIC_API_URL=https://api.<domain>`,
-  `NEXT_PUBLIC_SITE_URL=https://<domain>`, `REVALIDATE_SECRET` (same as the
-  API). The API must be live before the first Vercel build.
+## Production (live)
+
+| | |
+|---|---|
+| Domain | `geneticayur.com` (Namecheap, client's account) |
+| DNS | A `@`, `www`, `api` → `189.72.178.94` (Namecheap Advanced DNS) |
+| VPS | Hostinger KVM 1 (1 vCPU, 4 GB RAM, 50 GB), Mumbai, Ubuntu 26.04 LTS, 2 GB swap, timezone Asia/Dhaka |
+| Runtime | Node 24 LTS (NodeSource), pm2 7, nginx 1.28, certbot (webroot) |
+| Database | MongoDB Atlas M0, database `genetic-ayur`; VPS IP allowed in Atlas Network Access |
+| Firewall | ufw: OpenSSH, Nginx Full (80/443) only. Node ports are bound to localhost |
+
+Layout on the VPS (apps run as the non-root user `deploy`):
+
+```
+/var/www/geneticayur/
+  back/      genetic-ayur-back  (git clone, .env chmod 600)  pm2: ga-api  127.0.0.1:5000
+  front/     genetic-ayur-front (git clone, .env chmod 600)  pm2: ga-web  127.0.0.1:3000
+  uploads/   UPLOAD_DIR, outside both repos (back this up)
+```
+
+- nginx: `/etc/nginx/sites-available/geneticayur` (default site removed).
+  `http` → `https`; `www` → apex 301; apex → `ga_web`; `api.` → `ga_api`
+  (`client_max_body_size 10m` for uploads). HSTS on the apex. `server_tokens off`
+  is set in `/etc/nginx/nginx.conf` (Ubuntu ships the directive there; adding
+  it again in the site file is a duplicate error).
+- SSL: one Let's Encrypt cert for all three names
+  (`/etc/letsencrypt/live/geneticayur.com/`), renewed by `certbot.timer`
+  through `/var/www/html/.well-known`, deploy hook reloads nginx. Dry run passed.
+- pm2 starts at boot: systemd unit `pm2-deploy` (`pm2 save` after any process change).
+- API `.env` (production): `NODE_ENV=production`, `TRUST_PROXY=1` (nginx is
+  one hop), `CLIENT_URL=https://geneticayur.com,https://www.geneticayur.com`,
+  `STOREFRONT_URL=https://geneticayur.com`, `API_PUBLIC_URL=https://api.geneticayur.com`,
+  `REVALIDATE_URL=http://127.0.0.1:3000/api/revalidate` (same machine, no
+  round trip through nginx), `UPLOAD_DIR=/var/www/geneticayur/uploads`,
+  production-only `JWT_SECRET` and `REVALIDATE_SECRET` (not the dev ones),
+  Gmail SMTP, bKash keys empty (manual mode). No `ADMIN_*` lines.
+- Storefront `.env`: `NEXT_PUBLIC_API_URL=https://api.geneticayur.com` (baked
+  in at build time), `API_URL=http://127.0.0.1:5000` (server-side fetches stay
+  on the machine), `NEXT_PUBLIC_SITE_URL=https://geneticayur.com`,
+  `REVALIDATE_SECRET` copied from the API `.env`.
+- Dashboard accounts: `node scripts/createAdmin.js <email> "<password>" "<name>"`
+  from `back/` (direct node call, so npm does not echo the arguments).
+
+### Releasing an update
+
+Push to `main` on GitHub, then on the VPS:
+
+```bash
+ssh root@189.72.178.94
+su - deploy
+
+# API
+cd /var/www/geneticayur/back
+git pull && npm ci --omit=dev && pm2 reload ga-api
+
+# Storefront (the API must be up: the build reads /api/storefront)
+cd /var/www/geneticayur/front
+git pull && npm ci && NODE_OPTIONS=--max-old-space-size=2048 npm run build && pm2 reload ga-web
+
+pm2 status
+curl -s https://api.geneticayur.com/health
+```
+
+- `next build` writes into `.next` while `ga-web` is still serving, so the
+  site can error during the build (about a minute). Fine at this traffic; if
+  it matters later, build into a second folder and swap.
+- A new env var: edit `.env`, then `pm2 reload <name> --update-env`. A new
+  `NEXT_PUBLIC_*` value needs a rebuild.
+- Logs: `pm2 logs ga-api --lines 100`, `pm2 logs ga-web`, nginx in `/var/log/nginx/`.
 
 ## Open questions for the client
 
@@ -204,8 +265,8 @@ Follow the go-live plan below, then the end-to-end test:
 2. Should COD orders pay the delivery charge in advance (`codAdvance:
    "delivery"`)? Cuts fake orders, lowers conversion. Default is off.
 3. Stock: built as recommended (deduct on Confirmed). Confirm with the client.
-4. New order alert email: `ORDER_NOTIFY_TO` is geneticayur@gmail.com; needs the
-   Gmail App Password in `SMTP_PASS`.
+4. New order alert email: live `ORDER_NOTIFY_TO` is jahangirsb81@gmail.com with
+   its App Password set. Switch to a shop address if the client wants one.
 5. Do they want a bKash merchant (PGW) account or SSLCommerz later? Code is
    ready for both; only keys are missing.
 
